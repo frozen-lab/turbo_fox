@@ -1,0 +1,14 @@
+# Ignore everything by default
+*
+
+# Allow following
+!**.asm
+!**.nix
+!**.sh
+!**.md
+!**makefile
+!**.gitignore
+!**.yaml
+
+# Allow subdirectories to be checked
+!*/
