@@ -37,7 +37,60 @@ section .bss
 
 section .text
 _start:
-  ;; fall through and shutdown
+  ;; create a listening socket,
+  ;; w/ `socket(AF_INET, SOCK_STREAM, 0)`
+  mov rax, SYS_SOCKET
+  mov rdi, AF_INET
+  mov rsi, SOCK_STREAM
+  xor rdx, rdx
+  syscall
+
+  ;; check for socket errors (rax < 0)
+  test rax, rax
+  js error_exit
+
+  ;; store servers socket fd
+  mov [server_fd], rax
+
+  ;; set socket options for server fd
+  ;; w/ `setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &reuseaddr_val, 4)`
+  mov rax, SYS_SETSOCKOPT
+  mov rdi, [server_fd]
+  mov rsi, SOL_SOCKET
+  mov rdx, SO_REUSEADDR
+  lea r10, [reuseaddr_val]
+  mov r8, 0x04
+  syscall
+
+  ;; bind to an address
+  ;; w/ `bind(server_fd, sockaddr_in, 16)`
+  mov rax, SYS_BIND
+  mov rdi, [server_fd]
+  lea rsi, [sockaddr_in]
+  mov rdx, 0x10                 ; size of struct `16`
+  syscall
+
+  ;; check for bind errors (rax != 0)
+  test rax, rax
+  jnz error_exit
+
+  ;; listen on the server socket
+  ;; w/ `listen(server_fd, SOMAXCONN)`
+  mov rax, SYS_LISTEN
+  mov rdi, [server_fd]
+  mov rsi, SOMAXCONN
+  syscall
+
+  ;; check for listen errors (rax != 0)
+  test rax, rax
+  jnz error_exit
+
+  jmp shutdown
+
+error_exit:
+  mov rax, SYS_EXIT
+  mov rdi, 0x01
+  syscall
 
 shutdown:
   mov rax, SYS_EXIT
