@@ -87,6 +87,121 @@ _start:
 
   jmp shutdown
 
+;; read from the client fd
+;; w/ `read(client_fd, read_buffer, sizeof(read_buffer))`
+;;
+;; args,
+;; rdi - clients fd to read from
+;; rsi - pointer to read buf
+;; rdx - size of the read buf
+;;
+;; ret,
+;; rax - no. of bytes read or `-1` on error
+;;
+;; TODO - If `0` bytes are read from the client, this does not
+;; always means EOF!
+read_full:
+  ;; preserve stack pointer
+  push rbp
+  mov rbp, rsp
+
+  ;; counter to store no. of bytes read
+  push r12
+  xor r12, r12                  ; init the counter to `0`
+.read_loop:
+  ;; loop termination condition, (rdx <= 0)
+  test rdx, rdx
+  jz .ret
+  js .ret
+
+  ;; read from the client
+  ;;
+  ;; registers used from params,
+  ;; rdi - clients fd
+  ;; rsi - pointer to read buf
+  ;; rdx - sizeof read buf
+  mov rax, SYS_READ
+  syscall
+
+  ;; check for read errors (rax < 0) or EOF (rax == 0)
+  test rax, rax
+  js .err
+  jz .ret                       ; rax == 0, i.e. EOF
+
+  ;; now `rax` holds no. of bytes read into read buf
+
+  add rsi, rax                  ; advance pointer to read buf
+  sub rdx, rax                  ; update no. of bytes to read
+
+  jmp .read_loop
+.err:
+  mov rax, -1
+.ret:
+  mov rsp, rbp                  ; restore stack pointer
+  mov rax, r12                  ; load counter val to return
+
+  pop rbp
+  pop r12
+
+  ret
+
+;; write to client fd
+;; w/ `write(client_fd, write_buf, sizeof(write_buf))`
+;;
+;; args,
+;; rdi - client's fd
+;; rsi - pointer to write buf
+;; rdx - sizeof write buf
+;;
+;; ret,
+;; rax - no. of bytes written, or `-1` on error
+;;
+;; FIXME: If `0` bytes are written repetedly the func can
+;; get stuck in an infinite loop
+write_full:
+  ;; preserve stack pointer
+  push rbp
+  mov rbp, rsp
+
+  ;; counter to store no. of bytes written
+  push r12
+  xor r12, r12
+.write_loop:
+  ;; loop termination condition, (rdx <= 0)
+  test rax, rax
+  jz .ret
+  js .ret
+
+  ;; write to the client
+  ;;
+  ;; registers used from params,
+  ;; rdi - clients fd
+  ;; rsi - pointer to write buf
+  ;; rdx - sizeof write buf
+  mov rax, SYS_WRITE
+  syscall
+
+  ;; check for write errors (rax < 0)
+  test rax, rax
+  js .err
+
+  ;; now `rax` holds no. of bytes wrote into write buf
+
+  add rsi, rax                  ; advance pointer to write buf
+  sub rdx, rax                  ; update no. of bytes to write
+
+  jmp .write_loop
+.err:
+  mov rax, -1
+.ret:
+  mov rsp, rbp                  ; restore stack pointer
+  mov rax, r12                  ; load counter val to return
+
+  pop rbp
+  pop r12
+
+  ret
+
 error_exit:
   mov rax, SYS_EXIT
   mov rdi, 0x01
