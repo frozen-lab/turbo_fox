@@ -3,6 +3,8 @@
 
 # Allow following
 !**.asm
+!**.c
+!**.h
 !**.nix
 !**.sh
 !**.md
