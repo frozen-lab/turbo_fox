@@ -85,7 +85,56 @@ _start:
   test rax, rax
   jnz error_exit
 
-  jmp shutdown
+  ;; fall through to `server_loop`
+
+server_loop:
+  ;; accept new connection
+  ;; w/ `accept(server_fd, 0/null, 0/null)`
+  mov rax, SYS_ACCEPT
+  mov rdi, [server_fd]
+  xor rsi, rsi
+  xor rdx, rdx
+  syscall
+
+  ;; check for accept errors (rax < 0)
+  test rax, rax
+  js server_loop                ; skip this & accept new connections
+
+  ;; now `rax` holds the client's fd
+  mov [client_fd], rax
+
+  ;; prepare to read from the client fd
+  mov rdi, rax                ; clients fd
+  lea rsi, [read_buffer]
+  mov rdx, 4                  ; sizeof read buf
+  call read_full
+
+  ;; check for read errors (rax == -1 or rax == 0)
+  test rax, rax
+  jz close_client
+  js close_client
+
+  ;; prepare to write back to client fd
+  mov rdx, rax                  ; no of bytes to write (rax holds bytes read)
+  lea rsi, [read_buffer]
+  mov rdi, [client_fd]
+  call write_full
+
+  ;; check for write error (rax == -1)
+  test rax, rax
+  js close_client
+
+  ;; anyways fall through and close the connection with the client
+  jmp close_client
+
+;; close the connection to clients fd
+;; w/ `close(client_fd)`
+close_client:
+  mov rax, SYS_CLOSE
+  mov rdi, [client_fd]
+  syscall
+
+  jmp server_loop               ; continue to accept new connections
 
 ;; read from the client fd
 ;; w/ `read(client_fd, read_buffer, sizeof(read_buffer))`
@@ -101,46 +150,44 @@ _start:
 ;; TODO - If `0` bytes are read from the client, this does not
 ;; always means EOF!
 read_full:
-  ;; preserve stack pointer
-  push rbp
-  mov rbp, rsp
-
   ;; counter to store no. of bytes read
   push r12
   xor r12, r12                  ; init the counter to `0`
 .read_loop:
   ;; loop termination condition, (rdx <= 0)
-  test rdx, rdx
-  jz .ret
-  js .ret
+  cmp rdx, 0
+  jle .ret
 
   ;; read from the client
   ;;
   ;; registers used from params,
-  ;; rdi - clients fd
-  ;; rsi - pointer to read buf
-  ;; rdx - sizeof read buf
+  ;; - rdi (clients fd)
+  ;; - rsi (pointer to read buf)
+  ;; - rdx (sizeof read buf)
   mov rax, SYS_READ
   syscall
 
   ;; check for read errors (rax < 0) or EOF (rax == 0)
   test rax, rax
-  js .err
-  jz .ret                       ; rax == 0, i.e. EOF
+  js .check_eintr
+  jz .ret
 
   ;; now `rax` holds no. of bytes read into read buf
 
   add rsi, rax                  ; advance pointer to read buf
   sub rdx, rax                  ; update no. of bytes to read
+  add r12, rax                  ; update the counter
 
   jmp .read_loop
+.check_eintr:
+  cmp rax, -4
+  je .read_loop
+
+  ;; fall through and return error
 .err:
   mov rax, -1
 .ret:
-  mov rsp, rbp                  ; restore stack pointer
   mov rax, r12                  ; load counter val to return
-
-  pop rbp
   pop r12
 
   ret
@@ -159,16 +206,12 @@ read_full:
 ;; FIXME: If `0` bytes are written repetedly the func can
 ;; get stuck in an infinite loop
 write_full:
-  ;; preserve stack pointer
-  push rbp
-  mov rbp, rsp
-
   ;; counter to store no. of bytes written
   push r12
   xor r12, r12
 .write_loop:
   ;; loop termination condition, (rdx <= 0)
-  test rax, rax
+  test rdx, rdx
   jz .ret
   js .ret
 
@@ -183,21 +226,24 @@ write_full:
 
   ;; check for write errors (rax < 0)
   test rax, rax
-  js .err
+  js .check_eintr
 
   ;; now `rax` holds no. of bytes wrote into write buf
 
   add rsi, rax                  ; advance pointer to write buf
   sub rdx, rax                  ; update no. of bytes to write
+  add r12, rax                  ; update the counter
 
   jmp .write_loop
+.check_eintr:
+  cmp rax, -4
+  je .write_loop
+
+  ;; fall through and return error
 .err:
   mov rax, -1
 .ret:
-  mov rsp, rbp                  ; restore stack pointer
   mov rax, r12                  ; load counter val to return
-
-  pop rbp
   pop r12
 
   ret
