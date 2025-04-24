@@ -424,6 +424,67 @@ insert_node:
 .ret:
   ret
 
+;; find kv pair from the list
+;;
+;; ret,
+;; rax - sizeof value stored in value_buf, 0 if not found
+get_node:
+  xor rdx, rdx                  ; init size w/ 0
+
+  mov rbx, [node_head]
+
+  ;; check if list is empty
+  test rbx, rbx
+  jz .not_found
+.loop:
+  ;; `rbx` - holds pointer to current node
+
+  ;; read the key len and compare
+  mov rax, [rbx + 8]            ; rax = node->key_len
+  mov rcx, [key_len]
+
+  ;; comp len of two keys
+  cmp rax, rcx
+  jne .next_node
+
+  lea rdi, [key_buf]
+  lea rsi, [rbx + 24]
+  mov rdx, rax                  ; rax holds key's len from node
+  call compare_bytes
+
+  ;; check if key's are not same (rax != 0)
+  test rax, rax
+  jnz .next_node
+
+  ;; we've found the pair, now copy bytes from node to
+  ;; value buf
+
+  mov rdx, [rbx + 16]           ; rcx = node->val_len
+
+  ;; copy value bytes into val_buf
+  lea rsi, [val_buf]            ; dest to copy to
+  lea rdi, [rbx + 24 + rdx]     ; src to copy from
+  mov rcx, rdx                  ; size of buf to copy into dest
+  rep movsb
+
+  jmp .found
+.next_node:
+  mov rbx, [rbx]                ; rbx = node->next
+
+  ;; check if pointer is not null
+  test rbx, rbx
+  jnz .loop
+
+  ;; if rbx == Nulll, fall through and return not_equal
+.not_found:
+  xor rax, rax
+
+  jmp .ret
+.found:
+  mov rax, rdx                  ; success
+.ret:
+  ret
+
 ;; create a mem block for a new node
 ;;
 ;; ret,
@@ -505,7 +566,7 @@ create_node_block:
 ;;
 ;; ret,
 ;; rax - `0` if equal otherwise `1`
-copy_bytes:
+compare_bytes:
   xor rax, rax
 
   test rdx, rdx
