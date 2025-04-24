@@ -1,5 +1,4 @@
 #include <arpa/inet.h>
-#include <errno.h>
 #include <netinet/in.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -7,6 +6,13 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+#define MAX_RESPONSE_SIZE (10 * 1024 * 1024)
+
+/* Command IDs */
+#define CMD_SET 0
+#define CMD_GET 1
+#define CMD_DEL 2
 
 static void die(const char *msg) {
   perror(msg);
@@ -45,7 +51,7 @@ static void write_full(int fd, const void *buf, size_t n) {
 
 static void send_request(int fd, uint8_t cmd, const char *key, uint32_t key_len,
                          const char *val, uint32_t val_len) {
-  // 1-byte cmd
+  // 1-byte cmd: 0=SET, 1=GET, 2=DEL
   write_full(fd, &cmd, 1);
 
   // 4-byte key length (network byte order)
@@ -64,24 +70,30 @@ static void send_request(int fd, uint8_t cmd, const char *key, uint32_t key_len,
   if (val_len)
     write_full(fd, val, val_len);
 
-  // now read 4-byte response length
-  uint32_t nr;
-  read_full(fd, &nr, sizeof(nr));
-  nr = ntohl(nr);
-  if (nr > 10 * 1024 * 1024) {
-    fprintf(stderr, "response too large: %u\n", nr);
-    exit(EXIT_FAILURE);
+  // Read 1-byte response ID
+  uint8_t resp_id;
+  read_full(fd, &resp_id, sizeof(resp_id));
+  printf("response id: %u\n", resp_id);
+
+  // For IDs 200, 201, 202, read length + message
+  if (resp_id == 200 || resp_id == 201 || resp_id == 202) {
+    uint32_t nr;
+    read_full(fd, &nr, sizeof(nr));
+    nr = ntohl(nr);
+    if (nr > MAX_RESPONSE_SIZE) {
+      fprintf(stderr, "response too large: %u\n", nr);
+      exit(EXIT_FAILURE);
+    }
+
+    char *resp = malloc(nr + 1);
+    if (!resp)
+      die("malloc");
+    read_full(fd, resp, nr);
+    resp[nr] = '\0';
+
+    printf("server says: %s\n", resp);
+    free(resp);
   }
-
-  // read response body
-  char *resp = malloc(nr + 1);
-  if (!resp)
-    die("malloc");
-  read_full(fd, resp, nr);
-  resp[nr] = '\0';
-
-  printf("server says: %s\n", resp);
-  free(resp);
 }
 
 int main(void) {
@@ -102,13 +114,13 @@ int main(void) {
   // Example usage:
 
   // 1) SET foo -> bar
-  send_request(fd, 1, "foo", 3, "bar", 3);
+  send_request(fd, CMD_SET, "foo", 3, "bar", 3);
 
   // 2) GET foo
-  send_request(fd, 0, "foo", 3, NULL, 0);
+  // send_request(fd, CMD_GET, "foo", 3, NULL, 0);
 
   // 3) DEL foo
-  send_request(fd, 2, "foo", 3, NULL, 0);
+  // send_request(fd, CMD_DEL, "foo", 3, NULL, 0);
 
   close(fd);
   return 0;
