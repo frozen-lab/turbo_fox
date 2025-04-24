@@ -4,6 +4,7 @@ global _start
 %define SYS_READ 0x00
 %define SYS_WRITE 0x01
 %define SYS_CLOSE 0x03
+%define SYS_MMAP 0x09
 %define SYS_SOCKET 0x29
 %define SYS_ACCEPT 0x2B
 %define SYS_BIND 0x31
@@ -45,6 +46,9 @@ section .bss
 
   key_len resq 0x01                ; sizeof key buf
   val_len resq 0x01                ; sizeof val buf
+
+  node_head resq 0x01              ; pointer to first node
+  node_tail resq 0x01              ; pointer to last node
 
 section .text
 _start:
@@ -189,13 +193,6 @@ handle_set:
   ;; cache sizeof(key) into buf
   mov [key_len], r9
 
-  ;; print key
-  mov rax, SYS_WRITE
-  mov rdi, 0x01
-  lea rsi, [key_buf]
-  mov rdx, r9
-  syscall
-
   ;; READ VALUE
 
   ;; read value length from `client_fd`
@@ -228,13 +225,6 @@ handle_set:
 
   ;; cache sizeof(key) into buf
   mov [val_len], r9
-
-  ;; print valye
-  mov rax, SYS_WRITE
-  mov rdi, 0x01
-  lea rsi, [val_buf]
-  mov rdx, r9
-  syscall
 
   ;; WRITE RESPONSE
 
@@ -399,6 +389,144 @@ write_full:
   mov rax, r12                  ; load counter val to return
   pop r12
 
+  ret
+
+;; insert a new Node into the list
+;;
+;; ret,
+;; rax - pointer to the node or -1 on err
+insert_node:
+  ;; create a new node
+  call create_node_block
+
+  test rax, rax
+  js .err
+
+  ;; check if head == null
+  mov rdx, [node_head]
+
+  test rdx, rdx
+  jz .insert_empty              ; head & tail are null
+
+  ;; update the tail w/ new node
+  mov rbx, [node_tail]          ; old_tail
+  mov [rbx], rax                ; old_tail->pointer = new_node
+  mov [node_tail], rax
+
+  jmp .ret
+.insert_empty:
+  mov [node_head], rax
+  mov [node_tail], rax
+
+  jmp .ret
+.err:
+  mov rax, -1
+.ret:
+  ret
+
+;; create a mem block for a new node
+;;
+;; ret,
+;; rax - pointer to the mem block or -1 on err
+create_node_block:
+  push r12
+
+  ;; structure of the Node
+  ;;
+  ;; - 8 bytes = pointer
+  ;; - 8 bytes = size of key
+  ;; - 8 bytes = size of value
+  ;; - n bytes = key (at position [8 * 3])
+  ;; - m bytes = value (at position [8 * 3 + n])
+  ;;
+  ;; size - 24 (8 * 3) + n + m
+
+  ;; Calculate size of Node
+  ;;
+  ;; size (r12) = m (no. of key bytes) + n (no. of val bytes)
+  ;;     + 24  (pointer + key len + val len)
+  mov r12, [key_len]
+  mov rax, [val_len]
+  add r12, rax
+  add r12, 24
+
+  ;; allocate mem using `mmap` syscall
+  mov rax, SYS_MMAP          ; mmap syscall
+  mov rdi, 0x00              ; addr = Null (kernal chooses the addr)
+  mov rsi, r12               ; size of mem to allocate
+  mov rdx, 0x03              ; prot = PROT_READ | PROT_WRITE (1 | 2 = 3)
+  mov r8, -1                 ; fd = -1 (not backed by any file)
+  mov r9, 0x00               ; offset = 0
+  mov r10, 0x22              ; flags = MAP_PRIVATE | MAP_ANONYMOUS (0x02 | 0x20)
+  syscall
+
+  ;; check for `mmap` errors (rax < 0)
+  test rax, rax
+  js .err
+
+  ;; Now `rax` holds the pointer to the mem block
+
+  ;; STORE POINTER (Null)
+  mov qword [rax], 0x00         ; null pointer
+
+  ;; STORE KEY w/ LEN
+
+  mov rdx, [key_len]
+  mov [rax + 8], rdx            ; store key len
+
+  lea rdi, [rax + 24]           ; offset to store the key
+  lea rsi, [key_buf]
+  mov rcx, rdx
+  rep movsb
+
+  ;; STORE VALUE w/ LEN
+
+  mov rbx, [val_len]
+  mov [rax + 16], rbx           ; store val len
+
+  lea rdi, [rax + rdx + 24]     ; offset to store val (24 + n)
+  lea rsi, [val_buf]
+  mov rcx, rbx
+  rep movsb
+
+  jmp .ret
+.err:
+  mov rax, -1
+.ret:
+  pop r12
+  ret
+
+;; helper func to match two bufs
+;;
+;; args,
+;; rsi - pointer to source buf
+;; rdi - pointer to destination buf
+;; rdx - size of source buf
+;;
+;; ret,
+;; rax - `0` if equal otherwise `1`
+copy_bytes:
+  xor rax, rax
+
+  test rdx, rdx
+  jz .done
+.loop:
+  mov al, [rsi]
+
+  cmp al, [rdi]
+  jne .not_equal
+
+  inc rsi
+  inc rdi
+
+  dec rdx
+  jnz .loop
+.done:
+  xor rax, rax
+  jmp .ret
+.not_equal:
+  mov rax, 0x01
+.ret:
   ret
 
 ;; log error and shutdown with exit(1)
