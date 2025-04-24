@@ -37,8 +37,14 @@ section .data
 section .bss
   server_fd resq 0x01              ; server fd
   client_fd resq 0x01              ; current client's fd
-  read_buffer resb 0x80            ; buf to read from client
-  write_buffer resb 0x80           ; buf to write to client
+  read_buffer resb 0x80            ; buf to read from client (128 bytes)
+  write_buffer resb 0x80           ; buf to write to client (128 bytes)
+
+  key_buf resb 0x40                ; buf to cache key (64 bytes)
+  val_buf resb 0x40                ; buf to cache value (64 bytes)
+
+  key_len resq 0x01                ; sizeof key buf
+  val_len resq 0x01                ; sizeof val buf
 
 section .text
 _start:
@@ -135,7 +141,7 @@ handle_commands:
   ;; read cmd id from buf
   mov al, [read_buffer]
 
-  cmp al, '0'
+  cmp al, 0x00
   je handle_set
 
   jmp close_client
@@ -150,25 +156,103 @@ close_client:
   jmp server_loop               ; continue to accept new connections
 
 handle_set:
-  call read_len                 ; returns `edx` (key's length)
+  ;; READ KEY
 
+  ;; read key length from `client_fd`
+  mov r8, 128                   ; max key len allowed
+  call read_len                 ; returns `rdx` (read length)
+
+  ;; check for read error
+  ;; TODO add logging here
   test rax, rax
   jnz close_client
 
+  mov r9, rdx                   ; cache key's len
+
   ;; read key from `client_fd`
-  ;; key's length is stored in `edx`
-  lea rsi, [read_buffer]
+  ;; key's length is stored in `rdx`
+  lea rsi, [key_buf]
   mov rdi, [client_fd]
+  mov rdx, r9
   call read_full
 
   ;; check for read errors
+  ;; TODO add logging here
   test rax, rax
   js close_client
 
+  ;; check if we read the full key here
+  ;; TODO add logging here
+  cmp rax, r9
+  jne close_client
+
+  ;; cache sizeof(key) into buf
+  mov [key_len], r9
+
+  ;; print key
+  mov rax, SYS_WRITE
+  mov rdi, 0x01
+  lea rsi, [key_buf]
+  mov rdx, r9
+  syscall
+
+  ;; READ VALUE
+
+  ;; read value length from `client_fd`
+  mov r8, 128                   ; max key len allowed
+  call read_len                 ; returns `rdx` (read length)
+
+  ;; check for read error
+  ;; TODO add logging here
+  test rax, rax
+  jnz close_client
+
+  mov r9, rdx                   ; cache val's len
+
+  ;; read key from `client_fd`
+  ;; val's length is stored in `rdx`
+  lea rsi, [val_buf]
+  mov rdi, [client_fd]
+  mov rdx, r9
+  call read_full
+
+  ;; check for read errors
+  ;; TODO add logging here
+  test rax, rax
+  js close_client
+
+  ;; check if we read the full key here
+  ;; TODO add logging here
+  cmp rax, r9
+  jne close_client
+
+  ;; cache sizeof(key) into buf
+  mov [val_len], r9
+
+  ;; print valye
+  mov rax, SYS_WRITE
+  mov rdi, 0x01
+  lea rsi, [val_buf]
+  mov rdx, r9
+  syscall
+
+  ;; WRITE RESPONSE
+
+  ;; response id
+  mov al, 100
+  mov [write_buffer], al
+
+  mov rdx, 0x01
+  lea rsi, [write_buffer]
+  mov rdi, [client_fd]
+  call write_full
 
   jmp close_client
 
 ;; read 4 byte (C integer) length from `client_fd`
+;;
+;; args,
+;; r8 - max length allowed, e.g. 128
 ;;
 ;; ret,
 ;; edx - 4 bytes length (u32)
@@ -179,17 +263,25 @@ read_len:
   mov rdi, [client_fd]
   call read_full
 
-  test rax, rax
-  js .err
+  cmp rax, 0x04
+  jne .read_err
 
+  ;; read length stored as first 4 bytes from buf
   mov edx, [read_buffer]
 
-  ;; avoid buffer overflow
-  cmp edx, 128
-  jg .err
+  ;; convert from network byte order to host byte
+  ;; order (little endian)
+  bswap edx
 
+  ;; avoid buffer overflow
+  cmp rdx, r8
+  jg .len_err
+
+  jmp .done
+.read_err:
+  mov rax, 0x01
   jmp .ret
-.err:
+.len_err:
   mov rax, 0x01
   jmp .ret
 .done:
