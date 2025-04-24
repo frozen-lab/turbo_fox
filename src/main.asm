@@ -226,12 +226,23 @@ handle_set:
   ;; cache sizeof(key) into buf
   mov [val_len], r9
 
+  ;; INSERT NODE
+  call insert_node
+
+  ;; check for insert error (rax == -1)
+  ;;
+  ;; TODO add logging here
+  ;; HACK should return with resonable response code
+  test rax, rax
+  js close_client
+
   ;; WRITE RESPONSE
 
   ;; response id
   mov al, 100
   mov [write_buffer], al
 
+  ;; write response to the client_fd
   mov rdx, 0x01
   lea rsi, [write_buffer]
   mov rdi, [client_fd]
@@ -289,9 +300,6 @@ read_len:
 ;;
 ;; ret,
 ;; rax - no. of bytes read or `-1` on error
-;;
-;; TODO - If `0` bytes are read from the client, this does not
-;; always means EOF!
 read_full:
   ;; counter to store no. of bytes read
   push r12
