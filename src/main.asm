@@ -29,6 +29,11 @@ section .data
       dd 0x00                      ; protocol(0)
       dq 0x00                      ; padding of 8 bytes
 
+  ;; error messages for logging 16 bytes long each
+  socket_err_msg db  "(err) socket   ", 0x0a
+  bind_err_msg   db  "(err) bind     ", 0x0a
+  listen_err_msg db  "(err) listen   ", 0x0a
+
 section .bss
   server_fd resq 0x01              ; server fd
   client_fd resq 0x01              ; current client's fd
@@ -47,7 +52,7 @@ _start:
 
   ;; check for socket errors (rax < 0)
   test rax, rax
-  js error_exit
+  js .socket_err
 
   ;; store servers socket fd
   mov [server_fd], rax
@@ -72,7 +77,7 @@ _start:
 
   ;; check for bind errors (rax != 0)
   test rax, rax
-  jnz error_exit
+  jnz .bind_err
 
   ;; listen on the server socket
   ;; w/ `listen(server_fd, SOMAXCONN)`
@@ -83,9 +88,18 @@ _start:
 
   ;; check for listen errors (rax != 0)
   test rax, rax
-  jnz error_exit
+  jnz .listen_err
 
-  ;; fall through to `server_loop`
+  jmp server_loop
+.socket_err:
+  lea rsi, [socket_err_msg]
+  jmp log_error
+.bind_err:
+  lea rsi, [bind_err_msg]
+  jmp log_error
+.listen_err:
+  lea rsi, [listen_err_msg]
+  jmp log_error
 
 server_loop:
   ;; accept new connection
@@ -103,28 +117,27 @@ server_loop:
   ;; now `rax` holds the client's fd
   mov [client_fd], rax
 
-  ;; prepare to read from the client fd
-  mov rdi, rax                ; clients fd
-  lea rsi, [read_buffer]
-  mov rdx, 4                  ; sizeof read buf
-  call read_full
-
-  ;; check for read errors (rax == -1 or rax == 0)
-  test rax, rax
-  jz close_client
-  js close_client
-
-  ;; prepare to write back to client fd
-  mov rdx, rax                  ; no of bytes to write (rax holds bytes read)
+  ;; read user's cmd from the buf,
+  ;; first byte (u8 representing id of the command)
+  mov rdx, 1                    ; just one byte (u8)
   lea rsi, [read_buffer]
   mov rdi, [client_fd]
-  call write_full
+  call read_full
 
-  ;; check for write error (rax == -1)
-  test rax, rax
-  js close_client
+  ;; fall through and handle user's cmd
 
-  ;; anyways fall through and close the connection with the client
+;; handle user's cmd, represented by a `u8` number
+;; following are supported cmds,
+;; - set (0)
+;; - get (1)
+;; - del (2)
+handle_commands:
+  ;; read cmd id from buf
+  mov al, [read_buffer]
+
+  cmp al, '0'
+  je handle_set
+
   jmp close_client
 
 ;; close the connection to clients fd
@@ -135,6 +148,54 @@ close_client:
   syscall
 
   jmp server_loop               ; continue to accept new connections
+
+handle_set:
+  call read_len                 ; returns `edx` (key's length)
+
+  test rax, rax
+  jnz close_client
+
+  ;; read key from `client_fd`
+  ;; key's length is stored in `edx`
+  lea rsi, [read_buffer]
+  mov rdi, [client_fd]
+  call read_full
+
+  ;; check for read errors
+  test rax, rax
+  js close_client
+
+
+  jmp close_client
+
+;; read 4 byte (C integer) length from `client_fd`
+;;
+;; ret,
+;; edx - 4 bytes length (u32)
+;; rax - -1 on error, 0 otherwise
+read_len:
+  mov rdx, 0x04
+  lea rsi, [read_buffer]
+  mov rdi, [client_fd]
+  call read_full
+
+  test rax, rax
+  js .err
+
+  mov edx, [read_buffer]
+
+  ;; avoid buffer overflow
+  cmp edx, 128
+  jg .err
+
+  jmp .ret
+.err:
+  mov rax, 0x01
+  jmp .ret
+.done:
+  mov rax, 0x00
+.ret:
+  ret
 
 ;; read from the client fd
 ;; w/ `read(client_fd, read_buffer, sizeof(read_buffer))`
@@ -248,6 +309,22 @@ write_full:
 
   ret
 
+;; log error and shutdown with exit(1)
+;;
+;; 📝 NOTE: Log msg must be `16` bytes long (including line break)
+;;
+;; args,
+;; rsi - pointer to log msg buf
+log_error:
+  ;; log error msg
+  mov rax, SYS_WRITE
+  mov rdi, 0x01
+  mov rdx, 0x10                 ; 16 bytes
+  syscall
+
+  jmp error_exit
+
+;; shutdown app w/ exit(1)
 error_exit:
   mov rax, SYS_EXIT
   mov rdi, 0x01
