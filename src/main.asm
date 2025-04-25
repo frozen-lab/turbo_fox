@@ -560,11 +560,14 @@ get_node:
   ;; we've found the pair, now copy bytes from node to
   ;; value buf
 
-  mov rdx, [rbx + 16]           ; rcx = node->val_len
+  mov rcx, [rbx + 8]            ; rcx = node->key_len
+  mov rdx, [rbx + 16]           ; rdx = node->val_len
 
-  ;; copy value bytes into val_buf
-  lea rsi, [val_buf]            ; dest to copy to
-  lea rdi, [rbx + 24 + rdx]     ; src to copy from
+  ;; src = node + 24 + key_len,
+  ;; dest = val_buf, count = val_len
+
+  lea rsi, [rbx + 24 + rcx]     ; src to copy from
+  lea rdi, [val_buf]            ; dest to copy to
   mov rcx, rdx                  ; size of buf to copy into dest
   rep movsb
 
