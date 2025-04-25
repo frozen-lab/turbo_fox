@@ -7,6 +7,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#define SERVER_IP "127.0.0.1"
+#define SERVER_PORT 6969
 #define MAX_RESPONSE_SIZE (10 * 1024 * 1024)
 
 /* Command IDs */
@@ -51,7 +53,7 @@ static void write_full(int fd, const void *buf, size_t n) {
 
 static void send_request(int fd, uint8_t cmd, const char *key, uint32_t key_len,
                          const char *val, uint32_t val_len) {
-  // 1-byte cmd: 0=SET, 1=GET, 2=DEL
+  // 1-byte cmd
   write_full(fd, &cmd, 1);
 
   // 4-byte key length (network byte order)
@@ -96,32 +98,41 @@ static void send_request(int fd, uint8_t cmd, const char *key, uint32_t key_len,
   }
 }
 
-int main(void) {
+/*
+ * Establishes a new connection for each request,
+ * sends the request, and closes the socket.
+ */
+static void do_request(uint8_t cmd, const char *key, uint32_t key_len,
+                       const char *val, uint32_t val_len) {
   int fd = socket(AF_INET, SOCK_STREAM, 0);
   if (fd < 0)
     die("socket");
 
   struct sockaddr_in srv = {
       .sin_family = AF_INET,
-      .sin_port = htons(6969),
+      .sin_port = htons(SERVER_PORT),
   };
-  if (inet_pton(AF_INET, "127.0.0.1", &srv.sin_addr) != 1)
+  if (inet_pton(AF_INET, SERVER_IP, &srv.sin_addr) != 1)
     die("inet_pton");
 
   if (connect(fd, (struct sockaddr *)&srv, sizeof(srv)) < 0)
     die("connect");
 
+  send_request(fd, cmd, key, key_len, val, val_len);
+  close(fd);
+}
+
+int main(void) {
   // Example usage:
 
   // 1) SET foo -> bar
-  send_request(fd, CMD_SET, "foo", 3, "bar", 3);
+  do_request(CMD_SET, "foo", 3, "bar", 3);
 
   // 2) GET foo
-  // send_request(fd, CMD_GET, "foo", 3, NULL, 0);
+  do_request(CMD_GET, "foo", 3, NULL, 0);
 
   // 3) DEL foo
-  // send_request(fd, CMD_DEL, "foo", 3, NULL, 0);
+  // do_request(CMD_DEL, "foo", 3, NULL, 0);
 
-  close(fd);
   return 0;
 }
