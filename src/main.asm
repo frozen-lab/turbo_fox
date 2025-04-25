@@ -391,7 +391,7 @@ handle_del:
 
   ;; write ok response id to the client_fd
 
-  mov al, 200
+  mov al, 100
   mov [write_buffer], al
 
   mov rdx, 0x01
@@ -403,7 +403,7 @@ handle_del:
 .not_found:
   ;; write not found response id to the client_fd
 
-  mov al, 204
+  mov al, 104
   mov [write_buffer], al
 
   mov rdx, 0x01
