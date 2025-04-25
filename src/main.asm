@@ -295,7 +295,7 @@ handle_get:
 
   ;; we found the KV pair, now let's write back to the client_fd
 
-  mov rdx, rax                  ; cache sizeof val buf
+  mov r10, rax                  ; cache sizeof val buf
 
   ;; write response id to the client_fd
 
@@ -309,7 +309,7 @@ handle_get:
 
   ;; write value len to client_fd
 
-  mov eax, edx                  ; load lower 32 bits of size
+  mov eax, r10d                 ; load lower 32 bits of size
   bswap eax                     ; convert size to network endian
 
   lea rdi, [write_buffer]
@@ -322,9 +322,9 @@ handle_get:
 
   ;; write value back to the client
 
-  ;; rdx holds sizeof val buf
   lea rsi, [val_buf]
   mov rdi, [client_fd]
+  mov rdx, r10                  ; r10 holds sizeof val buf
   call write_full
 
   jmp .done
