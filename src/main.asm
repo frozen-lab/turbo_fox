@@ -151,6 +151,12 @@ handle_commands:
   cmp al, 0x01
   je handle_get
 
+  cmp al, 0x02
+  je handle_del
+
+  ;; TODO if none of the cmds match,
+  ;; then return w/ not found res id
+
   jmp close_client
 
 ;; close the connection to clients fd
@@ -340,6 +346,70 @@ handle_get:
   call write_full
 
   ;; fall through and close the connection
+.done:
+  jmp close_client
+
+handle_del:
+  ;; READ KEY
+
+  ;; read key length from `client_fd`
+  mov r8, 128                   ; max key len allowed
+  call read_len                 ; returns `rdx` (read length)
+
+  ;; check for read error
+  ;; TODO add logging here
+  test rax, rax
+  jnz close_client
+
+  mov r9, rdx                   ; cache key's len
+
+  ;; read key from `client_fd`
+  ;; key's length is stored in `rdx`
+  lea rsi, [key_buf]
+  mov rdi, [client_fd]
+  mov rdx, r9
+  call read_full
+
+  ;; check for read errors
+  ;; TODO add logging here
+  test rax, rax
+  js close_client
+
+  ;; check if we read the full key here
+  ;; TODO add logging here
+  cmp rax, r9
+  jne close_client
+
+  ;; cache sizeof(key) into buf
+  mov [key_len], r9
+
+  ;; delete the node
+  call del_node                 ; returns `rax` w/ deletion status
+
+  test rax, rax
+  jnz .not_found
+
+  ;; write ok response id to the client_fd
+
+  mov al, 200
+  mov [write_buffer], al
+
+  mov rdx, 0x01
+  lea rsi, [write_buffer]
+  mov rdi, [client_fd]
+  call write_full
+
+  jmp .done
+.not_found:
+  ;; write not found response id to the client_fd
+
+  mov al, 204
+  mov [write_buffer], al
+
+  mov rdx, 0x01
+  lea rsi, [write_buffer]
+  mov rdi, [client_fd]
+  call write_full
 .done:
   jmp close_client
 
@@ -587,6 +657,75 @@ get_node:
 .found:
   mov rax, rdx                  ; success
 .ret:
+  ret
+
+;; find and delete a node in the list
+;;
+;; ret,
+;; rax - `0` on success, `1` otherwise
+del_node:
+  push r12
+  push r13
+
+  xor r12, r12                  ; prev_node = Null
+  mov rbx, [node_head]          ; curr_node = head
+
+  test rbx, rbx
+  jz .not_found
+.loop:
+  ;; compare key lengths
+
+  mov rax, [rbx + 8]            ; rax = node->key_len
+  mov rcx, [key_len]
+
+  cmp rax, rcx
+  jne .next_node
+
+  ;; compare key buffers
+
+  lea rdi, [key_buf]
+  lea rsi, [rbx + 24]
+  mov rdx, rax                  ; rax holds key's len from node
+  call compare_bytes
+
+  test rax, rax
+  jnz .next_node
+
+  ;; we found the node
+
+  mov r13, [rbx]                ; next_node = curr->next
+
+  cmp r12, 0x00
+  jnz .unlink_prev
+
+  mov [node_head], r13
+  jmp .check_tail
+.unlink_prev:
+  mov [r12], r13                ; prev->next = next
+.check_tail:
+  test r13, r13
+  jnz .found
+
+  mov [node_tail], r12
+  jmp .found
+.next_node:
+  mov r12, rbx                  ; prev = cur
+  mov rbx, [rbx]                ; curr = curr->next
+
+  ;; check if we reach the end
+  test rbx, rbx
+  jz .not_found
+
+  jmp .loop
+.found:
+  xor rax, rax
+  jmp .ret
+.not_found:
+  mov rax, 0x01
+.ret:
+  pop r13
+  pop r12
+
   ret
 
 ;; create a mem block for a new node
