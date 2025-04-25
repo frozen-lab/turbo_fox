@@ -148,6 +148,9 @@ handle_commands:
   cmp al, 0x00
   je handle_set
 
+  cmp al, 0x01
+  je handle_get
+
   jmp close_client
 
 ;; close the connection to clients fd
@@ -248,6 +251,96 @@ handle_set:
   mov rdi, [client_fd]
   call write_full
 
+  jmp close_client
+
+handle_get:
+  ;; READ KEY
+
+  ;; read key length from `client_fd`
+  mov r8, 128                   ; max key len allowed
+  call read_len                 ; returns `rdx` (read length)
+
+  ;; check for read error
+  ;; TODO add logging here
+  test rax, rax
+  jnz close_client
+
+  mov r9, rdx                   ; cache key's len
+
+  ;; read key from `client_fd`
+  ;; key's length is stored in `rdx`
+  lea rsi, [key_buf]
+  mov rdi, [client_fd]
+  mov rdx, r9
+  call read_full
+
+  ;; check for read errors
+  ;; TODO add logging here
+  test rax, rax
+  js close_client
+
+  ;; check if we read the full key here
+  ;; TODO add logging here
+  cmp rax, r9
+  jne close_client
+
+  ;; cache sizeof(key) into buf
+  mov [key_len], r9
+
+  ;; find node in list
+  call get_node                 ; returns `rax` (sizeof val buf)
+
+  test rax, rax
+  jz .not_found
+
+  ;; we found the KV pair, now let's write back to the client_fd
+
+  mov rdx, rax                  ; cache sizeof val buf
+
+  ;; write response id to the client_fd
+
+  mov al, 200
+  mov [write_buffer], al
+
+  mov rdx, 0x01
+  lea rsi, [write_buffer]
+  mov rdi, [client_fd]
+  call write_full
+
+  ;; write value len to client_fd
+
+  mov eax, edx                  ; load lower 32 bits of size
+  bswap eax                     ; convert size to network endian
+
+  lea rdi, [write_buffer]
+  mov [rdi], eax
+
+  mov rdx, 0x04                 ; size is u32 number
+  lea rsi, [write_buffer]
+  mov rdi, [client_fd]
+  call write_full
+
+  ;; write value back to the client
+
+  ;; rdx holds sizeof val buf
+  lea rsi, [val_buf]
+  mov rdi, [client_fd]
+  call write_full
+
+  jmp .done
+.not_found:
+  ;; response id
+  mov al, 104
+  mov [write_buffer], al
+
+  ;; write response to the client_fd
+  mov rdx, 0x01
+  lea rsi, [write_buffer]
+  mov rdi, [client_fd]
+  call write_full
+
+  ;; fall through and close the connection
+.done:
   jmp close_client
 
 ;; read 4 byte (C integer) length from `client_fd`
