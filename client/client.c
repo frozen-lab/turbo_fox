@@ -132,7 +132,10 @@ int main(void) {
   do_request(CMD_GET, "foo", 3, NULL, 0);
 
   // 3) DEL foo
-  // do_request(CMD_DEL, "foo", 3, NULL, 0);
+  do_request(CMD_DEL, "foo", 3, NULL, 0);
+  do_request(CMD_DEL, "foo", 3, NULL, 0);
+
+  do_request(CMD_GET, "foo", 3, NULL, 0);
 
   return 0;
 }
