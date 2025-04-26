@@ -25,6 +25,17 @@ global _start
 %define LL_WARN  0x02
 %define LL_ERROR 0x03
 
+;; Response Id's
+%define RES_OK 0xC9             ; 201
+%define RES_UPDATED 0xCA        ; 202
+%define RES_NOTFOUND 0xCB       ; 203
+%define RES_UNKNOWN 0xCC        ; 204
+
+;; Request Id's
+%define REQ_SET 0x00            ; 0
+%define REQ_GET 0x01            ; 1
+%define REQ_DEL 0x02            ; 2
+
 ;; Macro to print the logs
 ;;
 ;; args -> level, ptr
@@ -180,27 +191,27 @@ server_loop:
   ;; fall through and handle user's cmd
 
 ;; handle user's cmd, represented by a `u8` number
+;;
 ;; following are supported cmds,
 ;; - set (0)
 ;; - get (1)
 ;; - del (2)
 handle_commands:
-  ;; read cmd id from buf
+  ;; read req id from buf
   mov al, [read_buffer]
 
-  cmp al, 0x00
+  cmp al, REQ_SET
   je handle_set
 
-  cmp al, 0x01
+  cmp al, REQ_GET
   je handle_get
 
-  cmp al, 0x02
+  cmp al, REQ_DEL
   je handle_del
 
-  ;; TODO if none of the cmds match,
-  ;; then return w/ not found res id
-
-  jmp close_client
+  ;; if none of the cmds match,
+  ;; return w/ not found res id
+  jmp handle_unknown_cmd
 
 ;; close the connection to clients fd
 ;; w/ `close(client_fd)`
@@ -210,6 +221,21 @@ close_client:
   syscall
 
   jmp server_loop               ; continue to accept new connections
+
+handle_unknown_cmd:
+  LOG LL_WARN, "[WARN] Received unknown cmd from client"
+
+  ;; response id
+  mov al, RES_UNKNOWN
+  mov [write_buffer], al
+
+  ;; write response to the client_fd
+  mov rdx, 0x01
+  lea rsi, [write_buffer]
+  mov rdi, [client_fd]
+  call write_full
+
+  jmp close_client
 
 handle_set:
   ;; READ KEY
