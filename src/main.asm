@@ -466,9 +466,9 @@ handle_del:
   call read_len                 ; returns `rdx` (read length)
 
   ;; check for read error
-  ;; TODO add logging here
+  ;; TODO: key error
   test rax, rax
-  jnz close_client
+  jnz .unknown_error
 
   mov r9, rdx                   ; cache key's len
 
@@ -480,14 +480,13 @@ handle_del:
   call read_full
 
   ;; check for read errors
-  ;; TODO add logging here
   test rax, rax
-  js close_client
+  js .unknown_error
 
   ;; check if we read the full key here
-  ;; TODO add logging here
+  ;; TODO: key error
   cmp rax, r9
-  jne close_client
+  jne .unknown_error
 
   ;; cache sizeof(key) into buf
   mov [key_len], r9
@@ -503,12 +502,20 @@ handle_del:
   mov al, 100
   mov [write_buffer], al
 
+  ;; check for write error
+  test rax, rax
+  js .unknown_error
+
   mov rdx, 0x01
   lea rsi, [write_buffer]
   mov rdi, [client_fd]
   call write_full
 
-  jmp .done
+  ;; check for write error
+  test rax, rax
+  js .unknown_error
+
+  jmp close_client
 .not_found:
   ;; write not found response id to the client_fd
 
@@ -519,7 +526,21 @@ handle_del:
   lea rsi, [write_buffer]
   mov rdi, [client_fd]
   call write_full
-.done:
+
+  jmp close_client
+.unknown_error:
+  LOG LL_ERROR, "[ERROR] Unknown error for DEL command"
+
+  ;; response id
+  mov al, RES_ERROR
+  mov [write_buffer], al
+
+  ;; write response to the client_fd
+  mov rdx, 0x01
+  lea rsi, [write_buffer]
+  mov rdi, [client_fd]
+  call write_full
+
   jmp close_client
 
 ;; read 4 byte (C integer) length from `client_fd`
