@@ -30,6 +30,7 @@ global _start
 %define RES_UPDATED 0xCA        ; 202
 %define RES_NOTFOUND 0xCB       ; 203
 %define RES_UNKNOWN 0xCC        ; 204
+%define RES_ERROR 0xCD          ; 205
 
 ;; Request Id's
 %define REQ_SET 0x00            ; 0
@@ -245,9 +246,8 @@ handle_set:
   call read_len                 ; returns `rdx` (read length)
 
   ;; check for read error
-  ;; TODO add logging here
   test rax, rax
-  jnz close_client
+  jnz .unknown_error
 
   mov r9, rdx                   ; cache key's len
 
@@ -259,14 +259,14 @@ handle_set:
   call read_full
 
   ;; check for read errors
-  ;; TODO add logging here
   test rax, rax
-  js close_client
+  js .unknown_error
 
   ;; check if we read the full key here
-  ;; TODO add logging here
+  ;; FIXME: This should return w/ response ID
+  ;; TODO: key error
   cmp rax, r9
-  jne close_client
+  jne .unknown_error
 
   ;; cache sizeof(key) into buf
   mov [key_len], r9
@@ -278,13 +278,12 @@ handle_set:
   call read_len                 ; returns `rdx` (read length)
 
   ;; check for read error
-  ;; TODO add logging here
   test rax, rax
-  jnz close_client
+  jnz .unknown_error
 
   mov r9, rdx                   ; cache val's len
 
-  ;; read key from `client_fd`
+  ;; read value from `client_fd`
   ;; val's length is stored in `rdx`
   lea rsi, [val_buf]
   mov rdi, [client_fd]
@@ -292,14 +291,14 @@ handle_set:
   call read_full
 
   ;; check for read errors
-  ;; TODO add logging here
   test rax, rax
-  js close_client
+  js .unknown_error
 
-  ;; check if we read the full key here
-  ;; TODO add logging here
+  ;; check if we read the full value here
+  ;; FIXME: Need a value error here
+  ;; TODO: Value error
   cmp rax, r9
-  jne close_client
+  jne .unknown_error
 
   ;; cache sizeof(key) into buf
   mov [val_len], r9
@@ -308,16 +307,34 @@ handle_set:
   call insert_node
 
   ;; check for insert error (rax == -1)
-  ;;
-  ;; TODO add logging here
-  ;; HACK should return with resonable response code
+  ;; FIXME: Should return w/ well defined error here
+  ;; TODO: insert error
   test rax, rax
-  js close_client
+  js .unknown_error
 
   ;; WRITE RESPONSE
 
   ;; response id
   mov al, 100
+  mov [write_buffer], al
+
+  ;; write response to the client_fd
+  mov rdx, 0x01
+  lea rsi, [write_buffer]
+  mov rdi, [client_fd]
+  call write_full
+
+  ;; check for write errors (rax < 0)
+  test rax, rax
+  js .unknown_error
+
+  ;; close the conn if everything went right
+  jmp close_client
+.unknown_error:
+  LOG LL_ERROR, "[ERROR] Unknown error for SET command"
+
+  ;; response id
+  mov al, RES_ERROR
   mov [write_buffer], al
 
   ;; write response to the client_fd
