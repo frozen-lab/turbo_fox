@@ -331,7 +331,7 @@ handle_set:
   ;; close the conn if everything went right
   jmp close_client
 .unknown_error:
-  LOG LL_ERROR, "[ERROR] Unknown error for SET command"
+  LOG LL_ERROR, "[ERROR] Unknown error in SET command"
 
   ;; response id
   mov al, RES_ERROR
@@ -353,9 +353,8 @@ handle_get:
   call read_len                 ; returns `rdx` (read length)
 
   ;; check for read error
-  ;; TODO add logging here
   test rax, rax
-  jnz close_client
+  jnz .unknown_error
 
   mov r9, rdx                   ; cache key's len
 
@@ -367,14 +366,13 @@ handle_get:
   call read_full
 
   ;; check for read errors
-  ;; TODO add logging here
   test rax, rax
-  js close_client
+  js .unknown_error
 
   ;; check if we read the full key here
-  ;; TODO add logging here
+  ;; TODO: key error
   cmp rax, r9
-  jne close_client
+  jne .unknown_error
 
   ;; cache sizeof(key) into buf
   mov [key_len], r9
@@ -399,6 +397,10 @@ handle_get:
   mov rdi, [client_fd]
   call write_full
 
+  ;; check for write error (rax == -1)
+  test rax, rax
+  js .unknown_error
+
   ;; write value len to client_fd
 
   mov eax, r10d                 ; load lower 32 bits of size
@@ -412,6 +414,10 @@ handle_get:
   mov rdi, [client_fd]
   call write_full
 
+  ;; check for write error (rax == -1)
+  test rax, rax
+  js .unknown_error
+
   ;; write value back to the client
 
   lea rsi, [val_buf]
@@ -419,7 +425,12 @@ handle_get:
   mov rdx, r10                  ; r10 holds sizeof val buf
   call write_full
 
-  jmp .done
+  ;; check for write error (rax == -1)
+  test rax, rax
+  js .unknown_error
+
+  ;; close client after success
+  jmp close_client
 .not_found:
   ;; response id
   mov al, 104
@@ -431,8 +442,20 @@ handle_get:
   mov rdi, [client_fd]
   call write_full
 
-  ;; fall through and close the connection
-.done:
+  jmp close_client
+.unknown_error:
+  LOG LL_ERROR, "[ERROR] Unknown error in GET command"
+
+  ;; response id
+  mov al, RES_ERROR
+  mov [write_buffer], al
+
+  ;; write response to the client_fd
+  mov rdx, 0x01
+  lea rsi, [write_buffer]
+  mov rdi, [client_fd]
+  call write_full
+
   jmp close_client
 
 handle_del:
