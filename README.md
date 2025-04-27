@@ -17,7 +17,8 @@ TurboFox is an in memory kv store written in pure x86_64 Assembly.
 
 ## Benchmark
 
-- **Machine Type**: GCP Compute Engine `e2-micro` (2 vCPUs, 1 GB memory)
+- **Server Machine**: GCP Compute Engine (`us-central1 / e2-micro` (2 vCPUs, 1 GB memory)
+- **Client Machine**: GCP Cloud Shell (`asia-south1`) 
 - **CPU Platform**: Intel Broadwell
 - **Architecture**: x86/64
 
