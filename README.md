@@ -12,13 +12,13 @@ TurboFox is an in memory key value store written in pure x86_64 Assembly.
 
 ### Steps
 
-**Download and Run Installer**:
+Download and Run Installer:
 
  ```bash
  curl -fsSL https://raw.githubusercontent.com/frozen-lab/turbofox/master/install.sh | bash
  ```
 
- *Alternatively, if using `wget`:*
+ Alternatively, if using `wget`:
 
  ```bash
  wget -qO- https://raw.githubusercontent.com/frozen-lab/turbofox/master/install.sh | bash
