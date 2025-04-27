@@ -26,13 +26,18 @@ global _start
 %define LL_ERROR 0x03
 
 ;; Response Id's
-%define RES_OK 0xC9             ; 201
-%define RES_UPDATED 0xCA        ; 202
-%define RES_NOTFOUND 0xCB       ; 203
-%define RES_UNKNOWN 0xCC        ; 204
-%define RES_ERROR 0xCD          ; 205
+
+%define RES_OK       0xC8       ; 200
+%define RES_CREATED  0xC9       ; 201
+%define RES_DELETED  0xCA       ; 202
+%define RES_UPDATED  0xCB       ; 203
+
+%define RES_NOTFOUND 0xD3       ; 211
+%define RES_ERROR    0xD4       ; 212
+%define RES_UNKNOWN  0xD5       ; 213
 
 ;; Request Id's
+
 %define REQ_SET 0x00            ; 0
 %define REQ_GET 0x01            ; 1
 %define REQ_DEL 0x02            ; 2
@@ -238,6 +243,13 @@ handle_unknown_cmd:
 
   jmp close_client
 
+;; handle set cmd
+;;
+;; protocol,
+;; req - {id}{key_size}{key}{val_size}{val}
+;; res - {id}
+;;
+;; res id's -> CREATED or ERROR
 handle_set:
   ;; READ KEY
 
@@ -315,7 +327,7 @@ handle_set:
   ;; WRITE RESPONSE
 
   ;; response id
-  mov al, 100
+  mov al, RES_CREATED
   mov [write_buffer], al
 
   ;; write response to the client_fd
@@ -345,6 +357,13 @@ handle_set:
 
   jmp close_client
 
+;; handle read cmd
+;;
+;; protocol,
+;; req - {id}{key_len}{key}
+;; res - {id}{val_len}{val}
+;;
+;; res id's -> OK or ERROR
 handle_get:
   ;; READ KEY
 
@@ -389,7 +408,7 @@ handle_get:
 
   ;; write response id to the client_fd
 
-  mov al, 200
+  mov al, RES_OK
   mov [write_buffer], al
 
   mov rdx, 0x01
@@ -433,7 +452,7 @@ handle_get:
   jmp close_client
 .not_found:
   ;; response id
-  mov al, 104
+  mov al, RES_NOTFOUND
   mov [write_buffer], al
 
   ;; write response to the client_fd
@@ -458,6 +477,13 @@ handle_get:
 
   jmp close_client
 
+;; handle del cmd
+;;
+;; protocol,
+;; req - {id}{key_len}{key}
+;; res - {id}
+;;
+;; res id's -> DELETED, NOTFOUND or ERROR
 handle_del:
   ;; READ KEY
 
@@ -499,7 +525,7 @@ handle_del:
 
   ;; write ok response id to the client_fd
 
-  mov al, 100
+  mov al, RES_DELETED
   mov [write_buffer], al
 
   ;; check for write error
@@ -519,7 +545,7 @@ handle_del:
 .not_found:
   ;; write not found response id to the client_fd
 
-  mov al, 104
+  mov al, RES_NOTFOUND
   mov [write_buffer], al
 
   mov rdx, 0x01
