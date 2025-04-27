@@ -9,7 +9,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/time.h>
-#include <time.h> // for struct tm, localtime_r, strftime
+#include <time.h>
 #include <unistd.h>
 
 #define DEFAULT_SERVER_IP "127.0.0.1"
@@ -137,7 +137,8 @@ static void usage(const char *prog) {
 }
 
 int main(int argc, char **argv) {
-  char *host = DEFAULT_SERVER_IP;
+  char *env_host = getenv("SERVER_IP");
+  char *host = env_host ? env_host : DEFAULT_SERVER_IP;
   int port = DEFAULT_SERVER_PORT;
   int opt;
 
