@@ -46,7 +46,7 @@ else
 fi
 
 echo "Installation directory: $DEST_DIR"
-read -rp "Proceed with installation to $DEST_DIR? [Y/n]: " confirm_dir
+read -rp "Proceed with installation to $DEST_DIR? [Y/n]: " confirm_dir </dev/tty
 confirm_dir=${confirm_dir:-Y}
 if [[ ! $confirm_dir =~ ^[Yy] ]]; then
   echo "Installation aborted by user."
@@ -54,7 +54,7 @@ if [[ ! $confirm_dir =~ ^[Yy] ]]; then
 fi
 
 # ─── USER PERMISSION TO DOWNLOAD & INSTALL ──────────────────────────────────
-read -rp "Download and install ${BINARY_NAME} to $DEST_DIR? [Y/n]: " confirm_install
+read -rp "Download and install ${BINARY_NAME} to $DEST_DIR? [Y/n]: " confirm_install </dev/tty
 confirm_install=${confirm_install:-Y}
 if [[ ! $confirm_install =~ ^[Yy] ]]; then
   echo "Operation cancelled by user."
