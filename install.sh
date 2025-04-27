@@ -17,7 +17,7 @@ fi
 
 # ─── CONFIG ────────────────────────────────────────────────────────────────
 readonly BINARY_NAME="turbofox"
-readonly DOWNLOAD_URL="https://github.com/frozen-lab/turbo_fox/releases/download/master/turbo-fox-linux-amd64"
+readonly DOWNLOAD_URL="https://github.com/frozen-lab/turbofox/releases/latest/download/${BINARY_NAME}-linux-amd64"
 
 usage() {
   cat <<EOF
@@ -26,52 +26,59 @@ Usage: install.sh [DEST_DIR]
 By default, if run as root, installs to /usr/local/bin;
 otherwise installs to \$HOME/.local/bin.
 
-You can override DEST_DIR by:
-  • Passing it as the first argument:
-      curl … | bash -s -- /custom/path
-  • Or exporting:
-      DEST_DIR=/custom/path curl … | bash
 EOF
   exit 1
 }
-
-# ─── PARSE ARGS & ENV OVERRIDE ─────────────────────────────────────────────
-# 1) If user passed a positional arg, use that.
-# 2) Else if DEST_DIR is already set in env, use that.
-# 3) Else auto-detect based on EUID.
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
 fi
 
+# ─── DESTINATION DETERMINATION & CONFIRMATION ───────────────────────────────
 if [[ -n "${1:-}" ]]; then
   DEST_DIR="$1"
-elif [[ -n "${DEST_DIR:-}" ]]; then
-  # exported by user
-  DEST_DIR="$DEST_DIR"
-elif [[ "$EUID" -eq 0 ]]; then
-  DEST_DIR="/usr/local/bin"
 else
-  DEST_DIR="$HOME/.local/bin"
+  if [[ $EUID -eq 0 ]]; then
+    DEST_DIR="/usr/local/bin"
+  else
+    DEST_DIR="$HOME/.local/bin"
+  fi
 fi
 
-# Download with HTTP-failure check:
+echo "Installation directory: $DEST_DIR"
+read -rp "Proceed with installation to $DEST_DIR? [Y/n]: " confirm_dir
+confirm_dir=${confirm_dir:-Y}
+if [[ ! $confirm_dir =~ ^[Yy] ]]; then
+  echo "Installation aborted by user."
+  exit 1
+fi
+
+# ─── USER PERMISSION TO DOWNLOAD & INSTALL ──────────────────────────────────
+read -rp "Download and install ${BINARY_NAME} to $DEST_DIR? [Y/n]: " confirm_install
+confirm_install=${confirm_install:-Y}
+if [[ ! $confirm_install =~ ^[Yy] ]]; then
+  echo "Operation cancelled by user."
+  exit 1
+fi
+
+# Ensure destination exists
+mkdir -p "$DEST_DIR"
+
+# ─── DOWNLOAD WITH HTTP-FALIURE CHECK ────────────────────────────────────────
 echo "Downloading ${BINARY_NAME}…"
 if command -v curl &>/dev/null; then
-  curl -fsSL "$DOWNLOAD_URL" -o "${DEST_DIR}/${BINARY_NAME}" ||
-    {
-      echo "Error: download failed (URL or network)." >&2
-      exit 1
-    }
+  curl -fsSL "$DOWNLOAD_URL" -o "${DEST_DIR}/${BINARY_NAME}" || {
+    echo "Error: download failed (URL or network)." >&2
+    exit 1
+  }
 else
-  wget --server-response -qO "${DEST_DIR}/${BINARY_NAME}" "$DOWNLOAD_URL" ||
-    {
-      echo "Error: download failed (URL or network)."
-      exit 1
-    }
+  wget --server-response -qO "${DEST_DIR}/${BINARY_NAME}" "$DOWNLOAD_URL" || {
+    echo "Error: download failed (URL or network)." >&2
+    exit 1
+  }
 fi
 
-# Validate ELF magic:
+# ─── VALIDATE ELF ─────────────────────────────────────────────────────────
 if ! head -c 4 "${DEST_DIR}/${BINARY_NAME}" | grep -q $'\x7fELF'; then
   echo "Error: downloaded file is not a Linux/x86_64 binary." >&2
   exit 1

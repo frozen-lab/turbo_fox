@@ -28,14 +28,14 @@ jobs:
       - name: Prepare release artifact
         run: |
           mkdir -p release
-          cp ./src/main release/turbo-fox-linux-amd64
+          cp ./src/main release/turbofox-linux-amd64
 
       - name: Create GitHub Release and Upload Binary
         uses: softprops/action-gh-release@v1
         with:
           name: Release ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
-          files: release/turbo-fox-linux-amd64
+          files: release/turbofox-linux-amd64
           draft: true
           generate_release_notes: true
         env:
