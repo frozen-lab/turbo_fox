@@ -97,11 +97,13 @@ static void send_request(int fd, uint8_t cmd, const uint8_t *key,
   if (key_len && write_full(fd, key, key_len) != key_len)
     die("write key data");
 
-  uint32_t nv = htonl(val_len);
-  if (write_full(fd, &nv, sizeof(nv)) != sizeof(nv))
-    die("write val_len");
-  if (val_len && write_full(fd, val, val_len) != val_len)
-    die("write val data");
+  if (cmd == CMD_SET) {
+    uint32_t nv = htonl(val_len);
+    if (write_full(fd, &nv, sizeof(nv)) != sizeof(nv))
+      die("write val_len");
+    if (write_full(fd, val, val_len) != (ssize_t)val_len)
+      die("write val data");
+  }
 
   uint8_t resp_id;
   if (read_full(fd, &resp_id, 1) != 1)
