@@ -5,6 +5,7 @@ global _start
 %define SYS_WRITE 0x01
 %define SYS_CLOSE 0x03
 %define SYS_MMAP 0x09
+%define SYS_MUNMAP 0x0B
 %define SYS_SOCKET 0x29
 %define SYS_ACCEPT 0x2B
 %define SYS_BIND 0x31
@@ -822,6 +823,7 @@ get_node:
 del_node:
   push r12
   push r13
+  push r14
 
   xor r12, r12                  ; prev_node = Null
   mov rbx, [node_head]          ; curr_node = head
@@ -849,6 +851,7 @@ del_node:
 
   ;; we found the node
 
+  mov r14, rbx                  ; save "curr" node pointer to unmap mem
   mov r13, [rbx]                ; next_node = curr->next
 
   cmp r12, 0x00
@@ -875,10 +878,30 @@ del_node:
   jmp .loop
 .found:
   xor rax, rax
+
+  ;; fall through and unmap the memory
+.mem_unmap:
+  mov   rsi, [r14 + 8]          ; key_len
+  add   rsi, [r14 + 16]         ; + val_len
+  add   rsi, 24                 ; + header (next,key_len,val_len)
+
+  mov rax, SYS_MUNMAP
+  mov rdi, r14                  ; addr = pointer to deleted node
+  syscall
+
+  ;; check for unmap error (rax < 0)
+  test rax, rax
+  js .unmap_error
+
   jmp .ret
 .not_found:
   mov rax, 0x01
+
+  jmp .ret
+.unmap_error:
+  LOG LL_ERROR, "[ERROR] error while un-mapping memory for discarded node"
 .ret:
+  pop r14
   pop r13
   pop r12
 
