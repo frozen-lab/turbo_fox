@@ -1,3 +1,6 @@
+%ifndef CONSTANTS
+%define CONSTANTS
+
 ;; Sys Calls
 %define SYS_READ 0x00
 %define SYS_WRITE 0x01
@@ -40,3 +43,5 @@
 %define REQ_SET 0x00            ; 0
 %define REQ_GET 0x01            ; 1
 %define REQ_DEL 0x02            ; 2
+
+%endif

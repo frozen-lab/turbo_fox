@@ -1,33 +1,5 @@
 %include "constants.inc"
-
-global _start
-
-;; Macro to print the logs
-;;
-;; args -> level, ptr
-%macro LOG 2
-  push    rax
-  push    rdx
-
-  section .data
-  align 0x08                    ; align to 8 bytes
-
-  %%msg: db %2, 0x0a
-  %%msg_len equ $ - %%msg
-
-  section .text
-  align 0x10                    ; align to 16 bytes
-
-  mov     dil, %1   ; level (rdi)
-  lea     rsi, [rel %%msg]
-  mov     rdx, %%msg_len
-  call    f_log_msg
-
-  ;; FIXME: how to handle write error?
-
-  pop     rdx
-  pop     rax
-%endmacro
+%include "logger.inc"
 
 section .data
   ;; constant value buf to set socket options
@@ -60,6 +32,8 @@ section .bss
   node_tail resq 0x01              ; pointer to last node
 
 section .text
+global _start
+
 _start:
   ;; set default log level to debug
   mov al, LL_DEBUG
