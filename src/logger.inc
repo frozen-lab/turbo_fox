@@ -1,6 +1,8 @@
 %ifndef LOGGER
 %define LOGGER
 
+extern f_print_log
+
 ;; Print logs to `stdout`
 ;;
 ;; * Arguments
@@ -22,7 +24,7 @@
   mov     dil, %1               ; level (rdi)
   lea     rsi, [rel %%msg]
   mov     rdx, %%msg_len
-  call    f_log_msg
+  call    f_print_log
 
   pop     rdx
   pop     rax

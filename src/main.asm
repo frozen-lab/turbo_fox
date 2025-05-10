@@ -1,20 +1,12 @@
 %include "constants.inc"
 %include "logger.inc"
 
-section .data
-  ;; constant value buf to set socket options
-  reuseaddr_val: dd 0x01
-
-  ;; sockaddr_in struct (16 bytes) for IPv4,
-  ;; port 6969 and INADDR_ANY
-  sockaddr_in:
-      dw 0x02                      ; AF_INET
-      dw 0x391B                    ; port (6969) in network byte order
-      dd 0x00                      ; protocol(0)
-      dq 0x00                      ; padding of 8 bytes
+extern f_init_listening_server
 
 section .bss
-  log_level resb 0x01              ; 0=DEBUG,1=INFO,2=WARN,3=ERROR
+  global LOG_LEVEL
+
+  LOG_LEVEL resb 0x01              ; 0=DEBUG,1=INFO,2=WARN,3=ERROR
 
   server_fd resq 0x01              ; server fd
   client_fd resq 0x01              ; current client's fd
@@ -32,78 +24,28 @@ section .bss
   node_tail resq 0x01              ; pointer to last node
 
 section .text
+
 global _start
 
 _start:
   ;; set default log level to debug
   mov al, LL_DEBUG
-  mov [log_level], al
+  mov [LOG_LEVEL], al
 
-  ;; create a listening socket,
-  ;; w/ `socket(AF_INET, SOCK_STREAM, 0)`
-  mov rax, SYS_SOCKET
-  mov rdi, AF_INET
-  mov rsi, SOCK_STREAM
-  xor rdx, rdx
-  syscall
+  ;; Create and Init listening server
+  call f_init_listening_server     ; returns server fd in `rax`
 
-  ;; check for socket errors (rax < 0)
+  ;; check for server error (rax == -1)
   test rax, rax
-  js .socket_err
+  js .error
 
-  ;; store servers socket fd
+  ;; save server fd for future use
   mov [server_fd], rax
 
-  LOG LL_DEBUG, "[DEBUG] created socket"
-
-  ;; set socket options for server fd
-  ;; w/ `setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &reuseaddr_val, 4)`
-  mov rax, SYS_SETSOCKOPT
-  mov rdi, [server_fd]
-  mov rsi, SOL_SOCKET
-  mov rdx, SO_REUSEADDR
-  lea r10, [reuseaddr_val]
-  mov r8, 0x04
-  syscall
-
-  ;; bind to an address
-  ;; w/ `bind(server_fd, sockaddr_in, 16)`
-  mov rax, SYS_BIND
-  mov rdi, [server_fd]
-  lea rsi, [sockaddr_in]
-  mov rdx, 0x10                 ; size of struct `16`
-  syscall
-
-  ;; check for bind errors (rax != 0)
-  test rax, rax
-  jnz .bind_err
-
-  LOG LL_DEBUG, "[DEBUG] binding socket to wildcard (0.0.0.0) addr"
-
-  ;; listen on the server socket
-  ;; w/ `listen(server_fd, SOMAXCONN)`
-  mov rax, SYS_LISTEN
-  mov rdi, [server_fd]
-  mov rsi, SOMAXCONN
-  syscall
-
-  ;; check for listen errors (rax != 0)
-  test rax, rax
-  jnz .listen_err
-
-  LOG LL_DEBUG, "[DEBUG] listening on server_fd"
-
-  LOG LL_DEBUG, "[DEBUG] server loop init"
-  jmp server_loop
-.socket_err:
-  LOG LL_ERROR, "[ERROR] socket error"
-  jmp l_server_exit
-.bind_err:
-  LOG LL_ERROR, "[ERROR] bind error"
-  jmp l_server_exit
-.listen_err:
-  LOG LL_ERROR, "[ERROR] listen error"
-  jmp l_server_exit
+  jmp server_loop                  ; init the server loop
+.error:
+  LOG LL_ERROR, "[ERROR] Unable to initialize the server"
+  jmp server_exit
 
 server_loop:
   ;; accept new connection
@@ -945,46 +887,9 @@ compare_bytes:
 .ret:
   ret
 
-;; print log msg to stdout
-;;
-;; 📝 NOTE: If provided log level is lower then global level,
-;; then logging is skipped
-;;
-;; args,
-;; rdi - log level (0-3)
-;; rsi - pointer to buf w/ newline
-;; rdx - sizeof write buf
-;;
-;; ret,
-;; rax - `0` on success, `1` otherwise
-f_log_msg:
-  mov     al, [log_level]
-
-  ;; Check if log level is smaller then global level
-  ;; `dil (rdi) < al (rax)`
-  cmp     dil, al
-  jb      .done
-
-  mov     rax, SYS_WRITE
-  mov     rdi, 0x01
-  ;; rsi & rdx are used from args
-  syscall
-
-  test rax, rax
-  js .err
-
-  jmp .done
-.err:
-  mov rax, 0x01
-  jmp .ret
-.done:
-  xor rax, rax
-.ret:
-  ret
-
 ;; shutdown app cause of server error
 ;; w/ exit(2)
-l_server_exit:
+server_exit:
   mov rax, SYS_EXIT
   mov rdi, 0x02
   syscall
